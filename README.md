@@ -1,6 +1,3 @@
-# AI-Code-Review-Platform-Automated-PR-Agent-
-
-
 # AI Code Review Platform with Multi-Agent Verification
 
 An automated, event-driven CI/CD platform designed to parse, sandbox, and review GitHub Pull Requests in real time. The platform integrates Abstract Syntax Tree (AST) static analysis with isolated Docker execution environments and a LangChain multi-agent verification loop to deliver hallucination-free code reviews directly to developer PRs.
