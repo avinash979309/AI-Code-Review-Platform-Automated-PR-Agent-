@@ -43,3 +43,10 @@ docker/data/redis/
 
 # Prisma
 packages/database/prisma/migrations/*.sql.bak
+ARCHITECTURE.md
+PHASES.md
+MEMORY.md
+RULES.md
+PRD.md
+RESUME_CONTRACT.md
+LEARNINGS.md
