@@ -21,13 +21,15 @@ export function createWorker(): Worker<ReviewJobData> {
       // Look up PullRequest from DB (created by webhook route)
       const webhookEvent = await prisma.webhookEvent.findUnique({
         where: { id: webhookEventId },
-        include: { pullRequest: true },
+        include: { pullRequest: { include: { repository: true } } },
       });
 
       let pullRequestId: string;
+      let repositoryId: string;
 
       if (webhookEvent?.pullRequest) {
         pullRequestId = webhookEvent.pullRequest.id;
+        repositoryId = webhookEvent.pullRequest.repositoryId;
       } else {
         // Fallback: upsert repo + PR if not found (e.g. simulate script)
         const repo = await prisma.repository.upsert({
@@ -49,6 +51,7 @@ export function createWorker(): Worker<ReviewJobData> {
           },
         });
         pullRequestId = pr.id;
+        repositoryId = repo.id;
       }
 
       // Create ReviewJob record
@@ -62,7 +65,7 @@ export function createWorker(): Worker<ReviewJobData> {
         },
       });
 
-      await runPipeline(job, reviewJob.id);
+      await runPipeline(job, reviewJob.id, repositoryId);
     },
     {
       connection: {

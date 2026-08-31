@@ -71,13 +71,20 @@ function getMockDiff(repositoryFullName: string, pullRequestNumber: number): Dif
       status: 'modified',
       additions: 45,
       deletions: 12,
-      patch: `@@ -10,12 +10,45 @@
+      patch: `@@ -10,12 +10,49 @@
 -  private cache: Map<string, unknown> = new Map();
 +  private cache: Map<string, CacheEntry> = new Map();
 +  private readonly maxCacheSize: number;
++  // TODO: add cache eviction policy (LRU vs LFU)
 +
 +  constructor(options: ServiceOptions = {}) {
 +    this.maxCacheSize = options.maxCacheSize ?? 1000;
++    console.log('ServiceOptions:', options);
++  }
++
++  async processRequest(data: any): Promise<void> {
++    console.log('Processing:', data);
++    // FIXME: validate data before processing
 +  }`,
       content: generateMockTypeScriptSource(`${repoSlug}Service`, pullRequestNumber),
     },
@@ -87,7 +94,22 @@ function getMockDiff(repositoryFullName: string, pullRequestNumber: number): Dif
       additions: 80,
       deletions: 0,
       patch: `@@ -0,0 +1,80 @@
-+import { Request, Response, NextFunction } from 'express';`,
++import { Request, Response, NextFunction } from 'express';
++import { ${repoSlug}Service } from '../services/${repoSlug}_service';
++
++export class ${repoSlug}Controller {
++  async handleRequest(req: Request, res: Response, next: NextFunction): Promise<void> {
++    const payload: any = req.body;
++    console.log('Incoming request body:', payload);
++    try {
++      await new ${repoSlug}Service().processRequest(payload);
++      res.json({ success: true });
++    } catch (err) {
++      console.error('Handler error:', err);
++      next(err);
++    }
++  }
++}`,
       content: generateMockControllerSource(`${repoSlug}Controller`),
     },
     {
@@ -95,7 +117,12 @@ function getMockDiff(repositoryFullName: string, pullRequestNumber: number): Dif
       status: 'modified',
       additions: 20,
       deletions: 5,
-      patch: `@@ -1,5 +1,20 @@`,
+      patch: `@@ -1,5 +1,20 @@
++// TODO: add proper validation library (e.g., zod)
++export function validateInput(input: any): boolean {
++  console.log('Validating:', input);
++  return input !== null && input !== undefined;
++}`,
       content: generateMockValidatorSource(),
     },
   ];
