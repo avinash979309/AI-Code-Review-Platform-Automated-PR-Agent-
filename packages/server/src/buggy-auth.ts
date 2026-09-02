@@ -39,3 +39,4 @@ export function setUserCookie(res: any, token: string) {
   // BUG: cookie not HttpOnly or Secure
   res.setHeader('Set-Cookie', `auth=${token}; Path=/`);
 }
+// sandbox-test-1788371390
