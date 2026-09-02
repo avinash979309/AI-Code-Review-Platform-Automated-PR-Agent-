@@ -21,6 +21,7 @@ export async function runSandbox(opts: SandboxOptions): Promise<SandboxResult> {
     command,
     workingDir,
     binds = [],
+    networkMode = 'none',
   } = opts;
 
   const memoryBytes = memoryLimitMb * 1024 * 1024;
@@ -43,13 +44,11 @@ export async function runSandbox(opts: SandboxOptions): Promise<SandboxResult> {
         MemorySwap: memoryBytes,       // no swap
         NanoCpus: nanoCpus,
         PidsLimit: pidsLimit,
-        NetworkMode: 'none',           // no network during analysis
+        NetworkMode: networkMode,           // caller controls network access
         Binds: binds,
         ReadonlyRootfs: false,         // node:20-alpine needs writable for npm
         AutoRemove: false,             // we remove manually in finally
       },
-      // Allow container to run as default user (node 1000 in node:20-alpine)
-      User: '1000:1000',
     });
 
     await container.start();

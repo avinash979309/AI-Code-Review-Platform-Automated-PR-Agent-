@@ -16,7 +16,7 @@ export function verifyUser(username: string, password: string, db: any) {
 // 🔧 [CRITICAL] Use of cryptographically broken hash algorithm (MD5): Use a stronger hashing algorithm like SHA-256, or utilize a dedicated token standard like JSON Web Tokens (JWT) or cryptographically secure random UUIDs.
 export function generateToken(userId: string) {
   // BUG: using MD5 (cryptographically broken)
-  return crypto.createHash('md5').update(userId + SECRET).digest('hex');
+  return crypto.createHash('md5').update(userId + process.env.AUTH_SECRET).digest('hex');
 }
 
 // 🔧 [WARNING] Potential null pointer dereference and loose equality check: Use optional chaining and strict equality: `return user?.role === 'admin';`

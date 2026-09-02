@@ -2,6 +2,7 @@ import express from 'express';
 import type { Application } from 'express';
 import { healthRouter } from './routes/health.routes.js';
 import { createWebhookRouter } from './routes/webhook.routes.js';
+import { createReviewRouter } from './routes/review.routes.js';
 import { errorHandler } from './middleware/error-handler.js';
 
 export function createApp(): Application {
@@ -21,6 +22,7 @@ export function createApp(): Application {
   // Routes
   app.use('/api', healthRouter);
   app.use('/api', createWebhookRouter());
+  app.use('/api', createReviewRouter());
 
   // 404 handler
   app.use((_req, res) => {

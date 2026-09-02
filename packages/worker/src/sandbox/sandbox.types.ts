@@ -10,7 +10,8 @@ export interface SandboxOptions {
   pidsLimit: number;
   command: string[];
   workingDir: string;
-  binds?: string[];         // host:container[:ro] volume binds
+  binds?: string[];         // host:container[:ro|:rw] volume binds
+  networkMode?: string;     // default 'none'; set 'bridge' when npm install needed
 }
 
 export interface SandboxResult {

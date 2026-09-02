@@ -14,6 +14,7 @@ import { runVectorRetrievalStage } from './vector-retrieval.js';
 import { runSelfCorrectionLoop } from './self-correction.js';
 import { MockAIProvider } from '../ai/mock.provider.js';
 import { HuggingFaceProvider } from '../ai/huggingface.provider.js';
+import { GeminiProvider } from '../ai/gemini.provider.js';
 import type { AIProvider } from '@coderev/shared';
 import { config } from '../config.js';
 import { buildDiffString } from './ai-review.js';
@@ -21,6 +22,9 @@ import { buildDiffString } from './ai-review.js';
 const prisma = new PrismaClient();
 
 function getProvider(): AIProvider {
+  if (config.AI_PROVIDER === 'gemini' && config.GEMINI_API_KEY) {
+    return new GeminiProvider(config.GEMINI_API_KEY);
+  }
   if (config.AI_PROVIDER === 'huggingface' && config.HUGGINGFACE_API_KEY) {
     return new HuggingFaceProvider(config.HUGGINGFACE_API_KEY);
   }

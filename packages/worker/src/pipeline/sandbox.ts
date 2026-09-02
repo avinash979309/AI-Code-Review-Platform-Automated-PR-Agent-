@@ -39,73 +39,155 @@ async function writeTempWorkspace(files: DiffFile[]): Promise<string> {
 }
 
 /**
- * Build a minimal package.json and the analysis script in the workspace.
+ * Write the real analysis script — runs inside node:20-alpine.
+ * Steps: npm install tsc+eslint → tsc --noEmit → eslint → emit structured JSON.
  */
 async function prepareAnalysisScript(tmpDir: string): Promise<void> {
-  // Minimal package.json
+  // Minimal package.json needed for npm install
   await fs.writeFile(
     path.join(tmpDir, 'package.json'),
-    JSON.stringify({ name: 'sandbox-analysis', version: '1.0.0', type: 'module' }),
+    JSON.stringify({ name: 'sandbox-analysis', version: '1.0.0', private: true }),
     'utf8',
   );
 
-  // Analysis script — runs inside node:20-alpine
+  // tsconfig for the analysed code
+  const tsconfig = {
+    compilerOptions: {
+      target: 'ES2020',
+      module: 'CommonJS',
+      moduleResolution: 'node',
+      strict: true,
+      esModuleInterop: true,
+      skipLibCheck: true,
+      allowJs: true,
+      noEmit: true,
+    },
+    include: ['/workspace/**/*.ts', '/workspace/**/*.tsx', '/workspace/**/*.js'],
+    exclude: ['/workspace/node_modules'],
+  };
+  await fs.writeFile(path.join(tmpDir, 'tsconfig.json'), JSON.stringify(tsconfig, null, 2), 'utf8');
+
+  // eslint config
+  const eslintConfig = {
+    parser: '@typescript-eslint/parser',
+    parserOptions: { ecmaVersion: 2020, sourceType: 'module' },
+    plugins: ['@typescript-eslint'],
+    rules: {
+      'no-eval': 'error',
+      'eqeqeq': ['warn', 'always'],
+      'no-console': 'warn',
+      'prefer-const': 'warn',
+      'no-var': 'warn',
+      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-unused-vars': 'warn',
+    },
+  };
+  await fs.writeFile(path.join(tmpDir, '.eslintrc.json'), JSON.stringify(eslintConfig, null, 2), 'utf8');
+
+  // Main analysis script — runs inside the container via `node analyze.mjs`
   const script = `
-import { readdir, stat, readFile } from 'fs/promises';
+import { execSync } from 'child_process';
+import { writeFileSync, readdirSync, statSync } from 'fs';
 import path from 'path';
 
-async function listFiles(dir, files = []) {
-  try {
-    const entries = await readdir(dir);
-    for (const e of entries) {
-      if (e === 'node_modules' || e === '.git' || e === 'package.json' || e === 'analyze.mjs') continue;
-      const full = path.join(dir, e);
-      const s = await stat(full);
-      if (s.isDirectory()) {
-        await listFiles(full, files);
-      } else {
-        files.push({ path: full, size: s.size });
-      }
-    }
-  } catch {}
-  return files;
+const log = (obj) => { process.stdout.write(JSON.stringify(obj) + '\\n'); };
+
+// 1. Install tools
+try {
+  log({ type: 'install_start' });
+  execSync(
+    'npm install --quiet --no-fund --no-audit --prefer-offline ' +
+    'typescript@5 eslint@8 @typescript-eslint/parser@6 @typescript-eslint/eslint-plugin@6',
+    { cwd: '/workspace', timeout: 90000, stdio: ['ignore', 'pipe', 'pipe'] }
+  );
+  log({ type: 'install_done' });
+} catch (e) {
+  const msg = (e.stdout?.toString() || '') + (e.stderr?.toString() || '');
+  log({ type: 'install_error', error: msg.slice(0, 500) });
+  process.exit(1);
 }
 
-const files = await listFiles('/workspace');
-const stats = {
-  fileCount: files.length,
-  totalBytes: files.reduce((s, f) => s + f.size, 0),
-  files: files.map(f => ({ path: f.path.replace('/workspace/', ''), size: f.size })),
-};
-
-console.log(JSON.stringify({ type: 'analysis', ...stats }));
-
-// Check for obvious issues in each file
-for (const f of files) {
-  try {
-    const content = await readFile(f.path, 'utf8');
-    const issues = [];
-    const lines = content.split('\\n');
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (line.includes('console.log') && !f.path.includes('test')) {
-        issues.push({ line: i + 1, type: 'warning', message: 'console.log in non-test file' });
-      }
-      if (line.includes('TODO') || line.includes('FIXME') || line.includes('HACK')) {
-        issues.push({ line: i + 1, type: 'info', message: 'TODO/FIXME/HACK comment found' });
-      }
-      if (line.length > 120) {
-        issues.push({ line: i + 1, type: 'warning', message: 'Line exceeds 120 characters' });
-      }
-    }
-    if (issues.length > 0) {
-      console.log(JSON.stringify({ type: 'lint', file: f.path.replace('/workspace/', ''), issues }));
-    }
-  } catch {}
+// 2. Run tsc
+try {
+  execSync(
+    './node_modules/.bin/tsc --noEmit --pretty false --project /workspace/tsconfig.json',
+    { cwd: '/workspace', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] }
+  );
+  log({ type: 'tsc', errorCount: 0, errors: [] });
+} catch (e) {
+  const output = (e.stdout?.toString() || '') + (e.stderr?.toString() || '');
+  const lines = output.split('\\n').filter(Boolean);
+  const errors = lines
+    .filter(l => l.includes(': error TS'))
+    .map(l => l.trim())
+    .slice(0, 50);
+  const others = lines
+    .filter(l => !l.includes(': error TS') && l.trim())
+    .map(l => l.trim())
+    .slice(0, 20);
+  log({ type: 'tsc', errorCount: errors.length, errors, other: others });
 }
 
-console.log(JSON.stringify({ type: 'complete', fileCount: files.length }));
-`;
+// 3. Collect source files for eslint
+function listFiles(dir, acc = []) {
+  try {
+    for (const entry of readdirSync(dir)) {
+      if (entry === 'node_modules' || entry.startsWith('.')) continue;
+      const full = path.join(dir, entry);
+      try {
+        const s = statSync(full);
+        if (s.isDirectory()) listFiles(full, acc);
+        else if (/\\.(ts|tsx|js|jsx)$/.test(entry)) acc.push(full);
+      } catch {}
+    }
+  } catch {}
+  return acc;
+}
+const sourceFiles = listFiles('/workspace').filter(f => !f.includes('analyze.mjs'));
+
+// 4. Run eslint
+try {
+  const out = execSync(
+    './node_modules/.bin/eslint --format json ' +
+    '--no-eslintrc --config /workspace/.eslintrc.json ' +
+    '--ext .ts,.tsx,.js,.jsx ' +
+    sourceFiles.join(' '),
+    { cwd: '/workspace', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] }
+  );
+  const results = JSON.parse(out.toString() || '[]');
+  const findings = results.flatMap(r =>
+    r.messages.map(m => ({
+      file: r.filePath.replace('/workspace/', ''),
+      line: m.line,
+      col: m.column,
+      severity: m.severity === 2 ? 'error' : 'warning',
+      rule: m.ruleId || 'unknown',
+      message: m.message,
+    }))
+  ).slice(0, 100);
+  log({ type: 'eslint', findingCount: findings.length, findings });
+} catch (e) {
+  try {
+    const output = e.stdout?.toString() || '';
+    const results = JSON.parse(output || '[]');
+    const findings = results.flatMap(r =>
+      r.messages.map(m => ({
+        file: r.filePath.replace('/workspace/', ''),
+        line: m.line,
+        col: m.column,
+        severity: m.severity === 2 ? 'error' : 'warning',
+        rule: m.ruleId || 'unknown',
+        message: m.message,
+      }))
+    ).slice(0, 100);
+    log({ type: 'eslint', findingCount: findings.length, findings });
+  } catch {
+    log({ type: 'eslint', error: (e.message || '').slice(0, 300) });
+  }
+}
+
+log({ type: 'complete', fileCount: sourceFiles.length });
+`.trim();
 
   await fs.writeFile(path.join(tmpDir, 'analyze.mjs'), script, 'utf8');
 }
@@ -126,10 +208,11 @@ export async function runSandboxStage(
       memoryLimitMb: config.SANDBOX_MEMORY_MB,
       cpuLimit: 0.5,
       timeoutMs: config.SANDBOX_TIMEOUT_MS,
-      pidsLimit: 100,
+      pidsLimit: 250,                            // npm spawns many subprocesses
       command: ['node', '/workspace/analyze.mjs'],
       workingDir: '/workspace',
-      binds: [`${tmpDir}:/workspace:ro`],
+      binds: [`${tmpDir}:/workspace:rw`],        // rw so npm can write node_modules
+      networkMode: 'bridge',                     // needed for npm install
     });
 
     // Persist to DB

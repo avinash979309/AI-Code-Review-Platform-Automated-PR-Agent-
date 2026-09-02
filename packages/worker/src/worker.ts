@@ -54,14 +54,23 @@ export function createWorker(): Worker<ReviewJobData> {
         repositoryId = repo.id;
       }
 
-      // Create ReviewJob record
-      const reviewJob = await prisma.reviewJob.create({
-        data: {
-          bullJobId: job.id ?? undefined,
+      // Upsert ReviewJob — safe on BullMQ retries (same bullJobId retried multiple times)
+      const bullJobId = String(job.id ?? 'unknown');
+      const reviewJob = await prisma.reviewJob.upsert({
+        where: { bullJobId },
+        create: {
+          bullJobId,
           status: JobStatus.QUEUED,
           commitSha: headSha,
           startedAt: new Date(),
           pullRequestId,
+        },
+        update: {
+          // On retry: reset status so pipeline reruns cleanly
+          status: JobStatus.QUEUED,
+          startedAt: new Date(),
+          completedAt: null,
+          error: null,
         },
       });
 

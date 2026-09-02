@@ -8,8 +8,9 @@ const envSchema = z.object({
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(2),
   SANDBOX_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
   SANDBOX_MEMORY_MB: z.coerce.number().int().positive().default(256),
-  AI_PROVIDER: z.enum(['mock', 'huggingface']).default('mock'),
+  AI_PROVIDER: z.enum(['mock', 'huggingface', 'gemini']).default('mock'),
   HUGGINGFACE_API_KEY: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
   GITHUB_TOKEN: z.string().optional(),
 });
 
